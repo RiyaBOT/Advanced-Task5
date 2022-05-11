@@ -89,12 +89,12 @@ namespace OrderService.Consumer
             if (db.Orders.Any(e => e.CartId == null)
             {
                 order.OrderStatus = "Failed"; 
-                Console.WriteLine("Order status failed");
+                Console.WriteLine("Order Failed");
             }
             else
             {
                 order.OrderStatus = "Success";
-                _logger.LogInformation("order success");
+                _logger.LogInformation("Order was Success");
                 db.Orders.Add(order);
                 db.SaveChanges();
                 Console.WriteLine("saved to db");
