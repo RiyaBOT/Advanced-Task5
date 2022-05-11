@@ -73,56 +73,66 @@ namespace OrderService.Consumer
             return Task.CompletedTask;
         }
 
-        private async Task HandleMessageAsync(string content)
+        private void HandleMessage(string content)
+    {
+        // we just print this message   
+        _logger.LogInformation($"consumer received {content}");
+
+        Order order = JsonSerializer.Deserialize<Order>(content);
+        Order order_msg = order;
+
+        using (var scope = _scopeFactory.CreateScope())
         {
-            // we just print this message   
-            _logger.LogInformation($"consumer received {content}");
+            var db = scope.ServiceProvider.GetRequiredService<OrderContext>();
+            db.Database.EnsureCreated();
 
-
-
-            string[] tokens = content.Split("=");
-            string[] Cart_ID = Cart_ID[1].Split(",");
-            string[] Product_ID= Product_ID[2].Split(",");
-            string[] Order_ID = Order_ID[3].Split(",");
-            string[] Order_Status = Order_Status[4].Split(",");
-            string[] Product_Prices = Product_Prices[5].Split(",");
-            string[] Total = Total[6].Split(",");
-
-            _logger.LogInformation($"after received {orders[0]}");
-            _logger.LogInformation($"Processing order... {orders[0]} ");
-
-            await Task.Delay(30000);
-
-            _logger.LogInformation($"will be published with updated orderid {Order_ID[0]} and cart ID {Cart_ID[0]}");
-
-            var factory = new ConnectionFactory()
+            if (db.Orders.Any(e => e.CartId == null)
             {
-                //HostName = "localhost",
-                // Port = 31500
-                HostName = Environment.GetEnvironmentVariable("RABBITMQ_HOST"),
-                Port = Convert.ToInt32(Environment.GetEnvironmentVariable("RABBITMQ_PORT"))
-            };
-
-            Console.WriteLine(factory.HostName + ":" + factory.Port);
-            using (var connection = factory.CreateConnection())
-            using (var channel = connection.CreateModel())
+                order.OrderStatus = "Failed"; 
+                Console.WriteLine("Order status failed");
+            }
+            else
             {
-                channel.QueueDeclare(queue: "orderstatus",
-                                     durable: true,
-                                     exclusive: false,
-                                     autoDelete: false,
-                                     arguments: null);
-
-                string message = "OrderId=" + Order_ID[0] + ", CartId=" + Cart_ID[0] ;
-                var body = Encoding.UTF8.GetBytes(message);
-
-                channel.BasicPublish(exchange: "",
-                                     routingKey: "orderstatus",
-                                     basicProperties: null,
-                                     body: body);
+                order.OrderStatus = "Success";
+                _logger.LogInformation("order success");
+                db.Orders.Add(order);
+                db.SaveChanges();
+                Console.WriteLine("saved to db");
             }
 
+            order_msg = db.Orders.Where(x => x.CartId == order.CartId).SingleOrDefault();
         }
+
+        var factory = new ConnectionFactory
+        {
+            HostName = _env.GetSection("RABBITMQ_HOST").Value,
+            Port = Convert.ToInt32(_env.GetSection("RABBITMQ_PORT").Value),
+            UserName = _env.GetSection("RABBITMQ_USER").Value,
+            Password = _env.GetSection("RABBITMQ_PASSWORD").Value
+        };
+        Console.WriteLine(factory.HostName + ":" + factory.Port);
+
+        using (var connection = factory.CreateConnection())
+        using (var channel = connection.CreateModel())
+        {
+            channel.QueueDeclare(queue: "order_processed",
+                                 durable: true,
+                                 exclusive: false,
+                                 autoDelete: false,
+                                 arguments: null);
+
+            string message = string.Empty;
+            message = JsonSerializer.Serialize(order_msg);
+            var body = Encoding.UTF8.GetBytes(message);
+
+            channel.BasicPublish(exchange: "",
+                                 routingKey: "order_processed",
+                                 basicProperties: null,
+                                 body: body);
+            Console.WriteLine(" [x] Sent {0}", message);
+        }
+
+    }
 
         private void OnConsumerConsumerCancelled(object sender, ConsumerEventArgs e) { }
         private void OnConsumerUnregistered(object sender, ConsumerEventArgs e) { }
